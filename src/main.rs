@@ -294,7 +294,7 @@ fn get_memories() -> anyhow::Result<String> {
 }
 
 // 4. CREATE THE MAIN FUNCTION TO RUN THE SERVER
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     // Create an instance of our server
     let server = MyServer;
