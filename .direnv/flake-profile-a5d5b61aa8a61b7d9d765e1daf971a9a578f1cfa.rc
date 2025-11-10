@@ -59,7 +59,7 @@ NIX_ENFORCE_NO_NATIVE='1'
 export NIX_ENFORCE_NO_NATIVE
 NIX_HARDENING_ENABLE='bindnow format fortify fortify3 pic relro stackclashprotection stackprotector strictoverflow zerocallusedregs'
 export NIX_HARDENING_ENABLE
-NIX_LDFLAGS='-rpath /home/casatta/git/bitcoin-data-mcp/outputs/out/lib  -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib'
+NIX_LDFLAGS='-rpath /home/casatta/git/memory-mcp/outputs/out/lib  -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib'
 export NIX_LDFLAGS
 NIX_LDFLAGS_FOR_TARGET=' -L/nix/store/1y0qdw8j1qigqgpyzh2b8108vm2igigf-rust-default-1.85.0/lib'
 export NIX_LDFLAGS_FOR_TARGET
@@ -171,7 +171,7 @@ name='nix-shell-env'
 export name
 nativeBuildInputs=''
 export nativeBuildInputs
-out='/home/casatta/git/bitcoin-data-mcp/outputs/out'
+out='/home/casatta/git/memory-mcp/outputs/out'
 export out
 outputBin='out'
 outputDev='out'
@@ -202,7 +202,7 @@ preConfigurePhases=' updateAutotoolsGnuConfigScriptsPhase'
 declare -a preFixupHooks=('_moveToShare' '_multioutDocs' '_multioutDevs' )
 preferLocalBuild='1'
 export preferLocalBuild
-prefix='/home/casatta/git/bitcoin-data-mcp/outputs/out'
+prefix='/home/casatta/git/memory-mcp/outputs/out'
 declare -a propagatedBuildDepFiles=('propagated-build-build-deps' 'propagated-native-build-inputs' 'propagated-build-target-deps' )
 propagatedBuildInputs=''
 export propagatedBuildInputs

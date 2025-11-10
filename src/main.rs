@@ -13,19 +13,24 @@ use rmcp::{
     transport::stdio, // The stdio communication channel
 };
 use serde::Deserialize; // For our tool's inputs
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 
 // 1. DEFINE YOUR TOOL'S INPUT PARAMETERS
 // The AI will see this and know what to provide.
 // 'schemars::JsonSchema' automatically builds the "menu" for the AI.
 #[derive(Deserialize, schemars::JsonSchema)]
-struct GreetParams {
-    #[schemars(description = "The name of the person to greet.")]
-    name: String,
+struct AddMemoryParams {
+    #[schemars(description = "The content to store in memory")]
+    content: String,
 }
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct GetMemoriesParams {}
 
 // 2. DEFINE YOUR SERVER
 // This struct will hold any state your server needs (like API keys, etc.)
-// For "Hello World," it's empty.
 #[derive(Clone)]
 struct MyServer;
 
@@ -39,27 +44,55 @@ impl ServerHandler for MyServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         use std::sync::Arc;
-        let schema = schemars::schema_for!(GreetParams);
-        let input_schema = rmcp::serde_json::to_value(schema).map_err(|e| {
+
+        // Schema for add_memory tool
+        let memory_schema = schemars::schema_for!(AddMemoryParams);
+        let memory_input_schema = rmcp::serde_json::to_value(memory_schema).map_err(|e| {
             ErrorData::internal_error(format!("Failed to serialize schema: {}", e), None)
         })?;
 
-        let input_schema_map = if let rmcp::serde_json::Value::Object(map) = input_schema {
-            Arc::new(map)
-        } else {
-            return Err(ErrorData::internal_error("Schema is not an object", None));
-        };
+        let memory_input_schema_map =
+            if let rmcp::serde_json::Value::Object(map) = memory_input_schema {
+                Arc::new(map)
+            } else {
+                return Err(ErrorData::internal_error("Schema is not an object", None));
+            };
+
+        // Schema for get_memories tool
+        let get_memories_schema = schemars::schema_for!(GetMemoriesParams);
+        let get_memories_input_schema =
+            rmcp::serde_json::to_value(get_memories_schema).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to serialize schema: {}", e), None)
+            })?;
+
+        let get_memories_input_schema_map =
+            if let rmcp::serde_json::Value::Object(map) = get_memories_input_schema {
+                Arc::new(map)
+            } else {
+                return Err(ErrorData::internal_error("Schema is not an object", None));
+            };
 
         Ok(ListToolsResult {
-            tools: vec![Tool {
-                name: "greet".into(),
-                title: None,
-                description: Some("Greet a person by name".into()),
-                input_schema: input_schema_map,
-                output_schema: None,
-                annotations: None,
-                icons: None,
-            }],
+            tools: vec![
+                Tool {
+                    name: "add_memory".into(),
+                    title: None,
+                    description: Some("Add a new memory about the user. Call this whenever the user shares preferences, facts about themselves, or explicitly asks you to remember something.".into()),
+                    input_schema: memory_input_schema_map,
+                    output_schema: None,
+                    annotations: None,
+                    icons: None,
+                },
+                Tool {
+                    name: "get_memories".into(),
+                    title: None,
+                    description: Some("Retrieve all stored memories about the user.".into()),
+                    input_schema: get_memories_input_schema_map,
+                    output_schema: None,
+                    annotations: None,
+                    icons: None,
+                }
+            ],
             next_cursor: None,
         })
     }
@@ -74,20 +107,30 @@ impl ServerHandler for MyServer {
 
         // This 'match' is how you handle multiple tools.
         match tool_name {
-            "greet" => {
-                // Parse the arguments into our GreetParams struct
+            "add_memory" => {
+                // Parse the arguments into our AddMemoryParams struct
                 let args = params.arguments.unwrap_or_default();
                 let args_value = rmcp::serde_json::Value::Object(args);
-                let greet_params: GreetParams =
-                    rmcp::serde_json::from_value(args_value).map_err(|e| {
+                let memory_params: AddMemoryParams = rmcp::serde_json::from_value(args_value)
+                    .map_err(|e| {
                         ErrorData::invalid_request(format!("Invalid parameters: {}", e), None)
                     })?;
 
-                // This is our tool's "business logic"
-                let message = format!("Hello, {}! 👋", greet_params.name);
+                // Save the memory to markdown file
+                save_memory(&memory_params.content).map_err(|e| {
+                    ErrorData::internal_error(format!("Failed to save memory: {}", e), None)
+                })?;
 
-                // We package the result and send it back to the AI
+                let message = "Memory saved successfully.".to_string();
                 Ok(CallToolResult::success(vec![Content::text(message)]))
+            }
+            "get_memories" => {
+                // Get all memories from the markdown file
+                let memories = get_memories().map_err(|e| {
+                    ErrorData::internal_error(format!("Failed to retrieve memories: {}", e), None)
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(memories)]))
             }
             _ => {
                 // Handle cases where the tool name is unknown
@@ -112,7 +155,7 @@ impl ServerHandler for MyServer {
                 ..Default::default()
             },
             server_info: Implementation {
-                name: "Hello MCP Server (Rust)".to_string(),
+                name: "Memory MCP Server (Rust)".to_string(),
                 title: None,
                 version: "0.1.0".to_string(),
                 icons: None,
@@ -121,6 +164,51 @@ impl ServerHandler for MyServer {
             instructions: None,
         })
     }
+}
+
+// Helper function to save memory to markdown file
+fn save_memory(content: &str) -> anyhow::Result<()> {
+    use std::time::SystemTime;
+
+    // Get the memory file path (in the current directory)
+    let mut path = PathBuf::from(".");
+    path.push("memories.md");
+
+    // Create or append to the file
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+
+    // Get current timestamp
+    let now = SystemTime::now();
+
+    // Write the memory with timestamp
+    writeln!(file, "## {:?}", now)?;
+    writeln!(file, "{}", content)?;
+    writeln!(file)?;
+
+    Ok(())
+}
+
+// Helper function to retrieve all memories from markdown file
+fn get_memories() -> anyhow::Result<String> {
+    use std::fs;
+
+    // Get the memory file path (in the current directory)
+    let mut path = PathBuf::from(".");
+    path.push("memories.md");
+
+    // Check if file exists
+    if !path.exists() {
+        return Ok("No memories found yet.".to_string());
+    }
+
+    // Read the file content
+    let content = fs::read_to_string(&path)?;
+
+    if content.trim().is_empty() {
+        return Ok("No memories found yet.".to_string());
+    }
+
+    Ok(content)
 }
 
 // 4. CREATE THE MAIN FUNCTION TO RUN THE SERVER
@@ -156,7 +244,7 @@ mod tests {
         assert!(build_result.status.success(), "Build should succeed");
 
         // Start the MCP server process
-        let mut child = Command::new("./target/debug/bitcoin-data-mcp")
+        let mut child = Command::new("./target/debug/memory-mcp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -205,7 +293,7 @@ mod tests {
         );
         assert_eq!(
             init_response["result"]["serverInfo"]["name"],
-            "Hello MCP Server (Rust)"
+            "Memory MCP Server (Rust)"
         );
         println!("✓ Initialize test passed");
 
@@ -254,65 +342,128 @@ mod tests {
         );
 
         let tools = tools_response["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1, "Should have exactly 1 tool");
+        assert_eq!(tools.len(), 2, "Should have exactly 2 tools");
 
-        let tool = &tools[0];
-        assert_eq!(tool["name"], "greet");
-        assert_eq!(tool["description"], "Greet a person by name");
-        assert!(tool["inputSchema"].is_object(), "Should have inputSchema");
+        let memory_tool = &tools[0];
+        assert_eq!(memory_tool["name"], "add_memory");
+        assert!(
+            memory_tool["inputSchema"].is_object(),
+            "Should have inputSchema"
+        );
+
+        let get_memories_tool = &tools[1];
+        assert_eq!(get_memories_tool["name"], "get_memories");
+        assert!(
+            get_memories_tool["inputSchema"].is_object(),
+            "Should have inputSchema"
+        );
 
         println!("✓ List tools test passed");
-        println!("  Tool name: {}", tool["name"]);
-        println!("  Tool description: {}", tool["description"]);
+        println!(
+            "  Tool 1: {} - {}",
+            memory_tool["name"], memory_tool["description"]
+        );
+        println!(
+            "  Tool 2: {} - {}",
+            get_memories_tool["name"], get_memories_tool["description"]
+        );
 
-        // Test 4: Call the greet tool
-        let call_tool_request = serde_json::json!({
+        // Test 4: Call add_memory tool to save a memory
+        let add_memory_request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "greet",
+                "name": "add_memory",
                 "arguments": {
-                    "name": "TestUser"
+                    "content": "User prefers dark mode and uses Rust for development"
                 }
             }
         });
 
-        writeln!(stdin, "{}", call_tool_request.to_string())
-            .expect("Failed to write call_tool request");
+        writeln!(stdin, "{}", add_memory_request.to_string())
+            .expect("Failed to write add_memory request");
         stdin.flush().expect("Failed to flush");
 
-        // Read call_tool response
-        let mut call_response_line = String::new();
+        // Read add_memory response
+        let mut add_memory_response_line = String::new();
         reader
-            .read_line(&mut call_response_line)
-            .expect("Failed to read call_tool response");
+            .read_line(&mut add_memory_response_line)
+            .expect("Failed to read add_memory response");
 
-        println!("Call tool response: {}", call_response_line);
+        println!("Add memory response: {}", add_memory_response_line);
 
-        let call_response: serde_json::Value =
-            serde_json::from_str(&call_response_line).expect("Failed to parse call_tool response");
+        let add_memory_response: serde_json::Value =
+            serde_json::from_str(&add_memory_response_line)
+                .expect("Failed to parse add_memory response");
 
-        assert_eq!(call_response["jsonrpc"], "2.0");
-        assert_eq!(call_response["id"], 3);
+        assert_eq!(add_memory_response["jsonrpc"], "2.0");
+        assert_eq!(add_memory_response["id"], 3);
         assert!(
-            call_response["result"].is_object(),
+            add_memory_response["result"].is_object(),
             "Should have result object"
         );
 
-        let content = &call_response["result"]["content"];
-        assert!(content.is_array(), "Should have content array");
+        let add_content = &add_memory_response["result"]["content"];
+        assert!(add_content.is_array(), "Should have content array");
         assert!(
-            content[0]["text"]
+            add_content[0]["text"]
                 .as_str()
                 .unwrap()
-                .contains("Hello, TestUser!")
+                .contains("Memory saved successfully")
         );
 
-        println!("✓ Call tool test passed");
-        println!("  Response: {}", content[0]["text"]);
+        println!("✓ Add memory test passed");
+
+        // Test 5: Call get_memories tool to retrieve memories
+        let get_memories_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "get_memories",
+                "arguments": {}
+            }
+        });
+
+        writeln!(stdin, "{}", get_memories_request.to_string())
+            .expect("Failed to write get_memories request");
+        stdin.flush().expect("Failed to flush");
+
+        // Read get_memories response
+        let mut get_memories_response_line = String::new();
+        reader
+            .read_line(&mut get_memories_response_line)
+            .expect("Failed to read get_memories response");
+
+        println!("Get memories response: {}", get_memories_response_line);
+
+        let get_memories_response: serde_json::Value =
+            serde_json::from_str(&get_memories_response_line)
+                .expect("Failed to parse get_memories response");
+
+        assert_eq!(get_memories_response["jsonrpc"], "2.0");
+        assert_eq!(get_memories_response["id"], 4);
+        assert!(
+            get_memories_response["result"].is_object(),
+            "Should have result object"
+        );
+
+        let get_content = &get_memories_response["result"]["content"];
+        assert!(get_content.is_array(), "Should have content array");
+        let memories_text = get_content[0]["text"].as_str().unwrap();
+        assert!(
+            memories_text.contains("User prefers dark mode and uses Rust for development"),
+            "Should contain the memory we just added"
+        );
+
+        println!("✓ Get memories test passed");
+        println!("  Retrieved memories contain our test data");
 
         // Clean up
         child.kill().expect("Failed to kill child process");
+
+        // Remove test memories file
+        let _ = std::fs::remove_file("memories.md");
     }
 }

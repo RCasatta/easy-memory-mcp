@@ -30,7 +30,7 @@
         };
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "bitcoin-data-mcp";
+          pname = "memory-mcp";
           version = "0.1.0";
 
           src = ./.;
@@ -48,7 +48,7 @@
 
         apps.default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/bitcoin-data-mcp";
+          program = "${self.packages.${system}.default}/bin/memory-mcp";
         };
       }
     );

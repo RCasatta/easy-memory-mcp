@@ -1,5 +1,5 @@
 [package]
-name = "bitcoin-data-mcp"
+name = "memory-mcp"
 version = "0.1.0"
 edition = "2024"
 
