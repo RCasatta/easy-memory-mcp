@@ -166,35 +166,112 @@ impl ServerHandler for MyServer {
     }
 }
 
+// Helper function to format Unix timestamp as human-readable date
+fn format_timestamp(unix_secs: i64) -> String {
+    // Calculate date components from Unix timestamp
+    const SECONDS_PER_DAY: i64 = 86400;
+    const DAYS_PER_YEAR: i64 = 365;
+    const DAYS_IN_4_YEARS: i64 = 1461; // 365*4 + 1 (leap year)
+
+    let days_since_epoch = unix_secs / SECONDS_PER_DAY;
+    let seconds_today = unix_secs % SECONDS_PER_DAY;
+
+    let hours = seconds_today / 3600;
+    let minutes = (seconds_today % 3600) / 60;
+
+    // Approximate year calculation (Unix epoch starts at 1970-01-01)
+    let mut year = 1970;
+    let mut remaining_days = days_since_epoch;
+
+    // Handle full 4-year cycles (including leap years)
+    let four_year_cycles = remaining_days / DAYS_IN_4_YEARS;
+    year += four_year_cycles * 4;
+    remaining_days %= DAYS_IN_4_YEARS;
+
+    // Handle remaining years
+    while remaining_days >= DAYS_PER_YEAR {
+        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        let days_this_year = if is_leap { 366 } else { 365 };
+        if remaining_days >= days_this_year {
+            remaining_days -= days_this_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Calculate month and day (simplified)
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let days_in_month = [
+        31,
+        if is_leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+
+    let mut month = 1;
+    let mut day = remaining_days + 1;
+
+    for &days in &days_in_month {
+        if day <= days {
+            break;
+        }
+        day -= days;
+        month += 1;
+    }
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02} UTC",
+        year, month, day, hours, minutes
+    )
+}
+
 // Helper function to save memory to markdown file
-fn save_memory(content: &str) -> anyhow::Result<()> {
+fn save_memory_to_file(content: &str, file_path: Option<&str>) -> anyhow::Result<()> {
     use std::time::SystemTime;
 
-    // Get the memory file path (in the current directory)
+    // Get the memory file path
+    let filename = file_path.unwrap_or("memories.md");
     let mut path = PathBuf::from(".");
-    path.push("memories.md");
+    path.push(filename);
 
     // Create or append to the file
     let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
 
-    // Get current timestamp
+    // Get current timestamp in human-readable format
     let now = SystemTime::now();
+    let unix_secs = now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs() as i64;
+    let formatted_time = format_timestamp(unix_secs);
 
     // Write the memory with timestamp
-    writeln!(file, "## {:?}", now)?;
+    writeln!(file, "## {}", formatted_time)?;
     writeln!(file, "{}", content)?;
     writeln!(file)?;
 
     Ok(())
 }
 
+// Wrapper function for production use
+fn save_memory(content: &str) -> anyhow::Result<()> {
+    save_memory_to_file(content, None)
+}
+
 // Helper function to retrieve all memories from markdown file
-fn get_memories() -> anyhow::Result<String> {
+fn get_memories_from_file(file_path: Option<&str>) -> anyhow::Result<String> {
     use std::fs;
 
-    // Get the memory file path (in the current directory)
+    // Get the memory file path
+    let filename = file_path.unwrap_or("memories.md");
     let mut path = PathBuf::from(".");
-    path.push("memories.md");
+    path.push(filename);
 
     // Check if file exists
     if !path.exists() {
@@ -209,6 +286,11 @@ fn get_memories() -> anyhow::Result<String> {
     }
 
     Ok(content)
+}
+
+// Wrapper function for production use
+fn get_memories() -> anyhow::Result<String> {
+    get_memories_from_file(None)
 }
 
 // 4. CREATE THE MAIN FUNCTION TO RUN THE SERVER
@@ -229,12 +311,102 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use rmcp::serde_json;
-    use std::io::{BufRead, BufReader, Write};
-    use std::process::{Command, Stdio};
+    use super::*;
+    use std::fs;
+
+    // Helper to create a unique test file for each test
+    fn get_test_file(test_name: &str) -> String {
+        format!("test_memories_{}.md", test_name)
+    }
 
     #[test]
-    fn test_mcp_protocol_initialize_and_list_tools() {
+    fn test_save_and_retrieve_memory() {
+        let test_file = get_test_file("save_retrieve");
+
+        // Clean up any existing test file
+        let _ = fs::remove_file(&test_file);
+
+        // Test saving a memory
+        let content = "User prefers dark mode and uses Rust for development";
+        let result = save_memory_to_file(content, Some(&test_file));
+        assert!(result.is_ok(), "Should successfully save memory");
+
+        // Test retrieving the memory
+        let retrieved = get_memories_from_file(Some(&test_file)).expect("Should retrieve memories");
+        assert!(
+            retrieved.contains(content),
+            "Retrieved memory should contain saved content"
+        );
+
+        // Clean up
+        let _ = fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn test_get_memories_when_file_does_not_exist() {
+        let test_file = get_test_file("nonexistent");
+
+        // Ensure file doesn't exist
+        let _ = fs::remove_file(&test_file);
+
+        let result =
+            get_memories_from_file(Some(&test_file)).expect("Should return default message");
+        assert_eq!(result, "No memories found yet.");
+    }
+
+    #[test]
+    fn test_multiple_memories() {
+        let test_file = get_test_file("multiple");
+
+        // Clean up
+        let _ = fs::remove_file(&test_file);
+
+        // Save multiple memories
+        save_memory_to_file("First memory: likes coffee", Some(&test_file))
+            .expect("Should save first memory");
+        save_memory_to_file("Second memory: uses Vim", Some(&test_file))
+            .expect("Should save second memory");
+        save_memory_to_file("Third memory: works remotely", Some(&test_file))
+            .expect("Should save third memory");
+
+        // Retrieve all memories
+        let all_memories =
+            get_memories_from_file(Some(&test_file)).expect("Should retrieve all memories");
+
+        // Check all memories are present
+        assert!(all_memories.contains("First memory: likes coffee"));
+        assert!(all_memories.contains("Second memory: uses Vim"));
+        assert!(all_memories.contains("Third memory: works remotely"));
+
+        // Clean up
+        let _ = fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn test_empty_file_returns_no_memories() {
+        let test_file = get_test_file("empty");
+
+        // Create an empty file
+        let _ = fs::remove_file(&test_file);
+        fs::write(&test_file, "").expect("Should create empty file");
+
+        let result =
+            get_memories_from_file(Some(&test_file)).expect("Should return default message");
+        assert_eq!(result, "No memories found yet.");
+
+        // Clean up
+        let _ = fs::remove_file(&test_file);
+    }
+
+    // Full integration test that spawns the actual server process
+    // Run with: cargo test test_full_mcp_protocol -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn test_full_mcp_protocol() {
+        use rmcp::serde_json;
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
+
         // Build the binary first
         let build_result = Command::new("cargo")
             .args(&["build"])
@@ -464,6 +636,6 @@ mod tests {
         child.kill().expect("Failed to kill child process");
 
         // Remove test memories file
-        let _ = std::fs::remove_file("memories.md");
+        let _ = fs::remove_file("memories.md");
     }
 }
