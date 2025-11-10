@@ -416,7 +416,7 @@ mod tests {
         assert!(build_result.status.success(), "Build should succeed");
 
         // Start the MCP server process
-        let mut child = Command::new("./target/debug/memory-mcp")
+        let mut child = Command::new("./target/debug/easy-memory-mcp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

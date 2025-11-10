@@ -21,7 +21,7 @@
         # Import the rust-toolchain.toml
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
-        buildInputs = [ rustToolchain ];
+        buildInputs = [ rustToolchain pkgs.cargo-bloat ];
 
       in
       {
@@ -30,7 +30,7 @@
         };
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "memory-mcp";
+          pname = "easy-memory-mcp";
           version = "0.1.0";
 
           src = ./.;
@@ -48,7 +48,7 @@
 
         apps.default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/memory-mcp";
+          program = "${self.packages.${system}.default}/bin/easy-memory-mcp";
         };
       }
     );
